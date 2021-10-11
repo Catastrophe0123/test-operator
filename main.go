@@ -17,7 +17,10 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
+	"log"
+	"net/http"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -25,15 +28,22 @@ import (
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	cachev1alpha1 "github.com/example/test-operator/api/v1alpha1"
 	"github.com/example/test-operator/controllers"
+	"github.com/gorilla/mux"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -47,6 +57,83 @@ func init() {
 
 	utilruntime.Must(cachev1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
+}
+
+func createDeployment(mgr manager.Manager) {
+	// deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: " -depl"} ,Spec: appsv1.DeploymentSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": }} }}
+	deployment := &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Deployment",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "worker-depl",
+			Namespace: "test-operator-system",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "worker-depl"},
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"app": "worker-depl"},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{{
+						Name:  "worker-depl",
+						Image: "heroku/nodejs-hello-world",
+						Ports: []v1.ContainerPort{{
+							Name:          "nodejs-port",
+							ContainerPort: 5000,
+						}},
+					}},
+				},
+			},
+		},
+	}
+
+	service := &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "worker-srv",
+			Namespace: "test-operator-system",
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{
+				"app": "worker-depl",
+			},
+			Type: v1.ServiceTypeNodePort,
+			Ports: []v1.ServicePort{{
+				Port:       5000,
+				NodePort:   31534,
+				TargetPort: intstr.FromInt(5000),
+			}},
+		},
+	}
+
+	setupLog.Info("deployment " + deployment.GetName())
+	setupLog.Info("service " + service.GetName())
+
+	// fmt.Print("aoijda", deployment)
+	// fmt.Print("aoijda", service)
+
+	err := mgr.GetClient().Create(context.TODO(), deployment)
+	if err != nil {
+		setupLog.Error(err, "Failed to create new Deployment")
+	}
+
+	setupLog.Info("created deployment " + deployment.GetName())
+
+	err = mgr.GetClient().Create(context.TODO(), service)
+	if err != nil {
+		setupLog.Error(err, "Failed to create new service")
+	}
+
+	setupLog.Info("created service " + service.GetName())
+
 }
 
 func main() {
@@ -98,10 +185,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
+	go func() {
+		setupLog.Info("starting manager")
+		if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+			setupLog.Error(err, "problem running manager")
+			os.Exit(1)
+		}
+	}()
+
+	// create http server
+	setupLog.Info("Creating HTTP server")
+
+	handler := func(w http.ResponseWriter, r *http.Request) {
+
+		createDeployment(mgr)
+
+		w.Write([]byte("Deployed the heroku hello world deployment !\n"))
 	}
+
+	router := mux.NewRouter()
+
+	router.HandleFunc("/", handler)
+	// http.Handle("/", router)
+	setupLog.Info("Before listen and serve")
+
+	log.Fatal(http.ListenAndServe(":8000", router))
 
 }
