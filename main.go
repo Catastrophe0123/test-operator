@@ -60,7 +60,6 @@ func init() {
 }
 
 func createDeployment(mgr manager.Manager) {
-	// deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: " -depl"} ,Spec: appsv1.DeploymentSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": }} }}
 	deployment := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Deployment",
@@ -116,9 +115,6 @@ func createDeployment(mgr manager.Manager) {
 
 	setupLog.Info("deployment " + deployment.GetName())
 	setupLog.Info("service " + service.GetName())
-
-	// fmt.Print("aoijda", deployment)
-	// fmt.Print("aoijda", service)
 
 	err := mgr.GetClient().Create(context.TODO(), deployment)
 	if err != nil {
@@ -206,7 +202,6 @@ func main() {
 	router := mux.NewRouter()
 
 	router.HandleFunc("/", handler)
-	// http.Handle("/", router)
 	setupLog.Info("Before listen and serve")
 
 	log.Fatal(http.ListenAndServe(":8000", router))
